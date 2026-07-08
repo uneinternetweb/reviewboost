@@ -11,6 +11,7 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: write
+
     steps:
       - uses: actions/checkout@v4
 
@@ -27,15 +28,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-     - name: Install NSSM
-  working-directory: .
-  shell: pwsh
-  run: |
-    $ErrorActionPreference = 'Stop'
-    choco install nssm --no-progress -y
-    New-Item -ItemType Directory -Force -Path 'installer/nssm' | Out-Null
-    $nssm = (Get-Command nssm.exe).Source
-    Copy-Item $nssm 'installer/nssm/nssm.exe' -Force
+      - name: Install NSSM
+        working-directory: .
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          choco install nssm --no-progress -y
+          New-Item -ItemType Directory -Force -Path 'installer/nssm' | Out-Null
+          $nssm = (Get-Command nssm.exe).Source
+          Copy-Item $nssm 'installer/nssm/nssm.exe' -Force
 
       - name: Build exe with PyInstaller
         working-directory: .
