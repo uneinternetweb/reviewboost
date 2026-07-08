@@ -1,0 +1,67 @@
+name: Build Windows agent
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: agent/requirements.txt
+
+      - name: Install Python dependencies
+        working-directory: agent
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Download NSSM
+        working-directory: agent
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = "$env:RUNNER_TEMP\nssm.zip"
+          Invoke-WebRequest -Uri 'https://nssm.cc/release/nssm-2.24.zip' -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath "$env:RUNNER_TEMP\nssm-extract" -Force
+          New-Item -ItemType Directory -Force -Path 'installer/nssm' | Out-Null
+          Copy-Item "$env:RUNNER_TEMP\nssm-extract\nssm-2.24\win64\nssm.exe" 'installer/nssm/nssm.exe'
+
+      - name: Build exe with PyInstaller
+        working-directory: agent
+        run: pyinstaller pyinstaller.spec --clean --noconfirm
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer with Inno Setup
+        working-directory: agent
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc installer/reviewboost-agent.iss
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ReviewBoostAgentSetup
+          path: agent/installer/Output/ReviewBoostAgentSetup.exe
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: agent/installer/Output/ReviewBoostAgentSetup.exe
+          generate_release_notes: true
