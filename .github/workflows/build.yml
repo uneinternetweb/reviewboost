@@ -27,16 +27,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Download NSSM
-        working-directory: .
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $zip = "$env:RUNNER_TEMP\nssm.zip"
-          Invoke-WebRequest -Uri 'https://nssm.cc/release/nssm-2.24.zip' -OutFile $zip
-          Expand-Archive -Path $zip -DestinationPath "$env:RUNNER_TEMP\nssm-extract" -Force
-          New-Item -ItemType Directory -Force -Path 'installer/nssm' | Out-Null
-          Copy-Item "$env:RUNNER_TEMP\nssm-extract\nssm-2.24\win64\nssm.exe" 'installer/nssm/nssm.exe'
+     - name: Install NSSM
+  working-directory: .
+  shell: pwsh
+  run: |
+    $ErrorActionPreference = 'Stop'
+    choco install nssm --no-progress -y
+    New-Item -ItemType Directory -Force -Path 'installer/nssm' | Out-Null
+    $nssm = (Get-Command nssm.exe).Source
+    Copy-Item $nssm 'installer/nssm/nssm.exe' -Force
 
       - name: Build exe with PyInstaller
         working-directory: .
