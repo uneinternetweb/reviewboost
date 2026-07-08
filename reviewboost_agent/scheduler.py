@@ -1,5 +1,6 @@
 """Main sync loop."""
 from __future__ import annotations
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Optional
@@ -32,13 +33,29 @@ def _should_run(cfg: AgentConfig, remote: SyncConfigResponse) -> tuple[bool, str
         return True, 'scheduled'
     return False, ''
 
+def _record_error(cfg: AgentConfig, exc: BaseException) -> None:
+    cfg.last_error = f'{type(exc).__name__}: {exc}'
+    cfg.last_error_at = datetime.now(timezone.utc).isoformat()
+    try:
+        save_config(cfg)
+    except Exception:
+        log.exception('No se pudo guardar el último error en la configuración.')
+
+
 def run_once(force: bool = False) -> None:
     cfg = load_config()
     if not cfg.is_ready():
         log.warning('Config incompleta; abre el asistente.')
         return
-    client = SyncClient(cfg.api_base, cfg.agent_api_key)
-    remote = client.get_config()
+    try:
+        client = SyncClient(cfg.api_base, cfg.agent_api_key)
+        remote = client.get_config()
+        cfg.last_supabase_ok_at = datetime.now(timezone.utc).isoformat()
+        save_config(cfg)
+    except Exception as exc:
+        log.exception('Fallo consultando configuración remota: %s', exc)
+        _record_error(cfg, exc)
+        raise
     if not remote.enabled:
         log.info('Sincronización deshabilitada por el servidor.')
         return
@@ -56,21 +73,38 @@ def run_once(force: bool = False) -> None:
     )
     log.info('Sync inicio trigger=%s since=%s', trigger, remote.last_seen_max_code)
     total = 0
-    for batch in read_new_patients(cfg.mdb_path, cfg.mdb_password, cols, remote.last_seen_max_code):
-        payload = [r.to_payload() for r in batch]
-        result = client.ingest(payload, trigger=trigger)
-        total += len(payload)
-        log.info('Batch %d filas resp=%s', len(payload), result)
-    cfg.last_run_at = datetime.now(timezone.utc).isoformat()
+    try:
+        for batch in read_new_patients(cfg.mdb_path, cfg.mdb_password, cols, remote.last_seen_max_code):
+            payload = [r.to_payload() for r in batch]
+            result = client.ingest(payload, trigger=trigger)
+            total += len(payload)
+            log.info('Batch %d filas resp=%s', len(payload), result)
+    except Exception as exc:
+        log.exception('Fallo durante la sincronización: %s', exc)
+        _record_error(cfg, exc)
+        raise
+    now = datetime.now(timezone.utc).isoformat()
+    cfg.last_run_at = now
+    cfg.last_sync_ok_at = now
     cfg.last_seen_manual_trigger = remote.manual_trigger_requested_at
+    cfg.last_error = None
+    cfg.last_error_at = None
     save_config(cfg)
     log.info('Sync fin total=%d', total)
 
-def run_forever() -> None:
+
+def run_forever(stop_flag: Optional[threading.Event] = None) -> None:
     log.info('Agente Review Boost iniciado (servicio).')
     while True:
+        if stop_flag is not None and stop_flag.is_set():
+            log.info('Servicio detenido.')
+            return
         try:
             run_once()
         except Exception as exc:
             log.exception('Error ciclo: %s', exc)
-        time.sleep(POLL_SECONDS)
+        for _ in range(POLL_SECONDS):
+            if stop_flag is not None and stop_flag.is_set():
+                log.info('Servicio detenido.')
+                return
+            time.sleep(1)
