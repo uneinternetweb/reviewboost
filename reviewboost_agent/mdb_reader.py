@@ -54,20 +54,21 @@ def test_connection(mdb_path: str, password: str, table_name: str) -> int:
         cur.execute(f'SELECT COUNT(*) FROM [{table_name}]')
         return int(cur.fetchone()[0])
 
-def read_new_patients(mdb_path: str, password: str, cols: ColumnMap, since_code: Optional[str], batch_size: int = 500) -> Iterator[list[PatientRow]]:
+def read_new_patients(mdb_path: str, password: str, cols: ColumnMap, since_code: Optional[str] = None, batch_size: int = 500) -> Iterator[list[PatientRow]]:
+    """Read all patients from the mapped MDB table.
+
+    We intentionally ignore since_code. DrTooth installations may use numeric,
+    alphanumeric, or arbitrary patient codes; comparing them with > is unsafe.
+    Supabase deduplicates/upserts by patient_id, so a full scan is safer.
+    """
     select_cols = [cols.col_code, cols.col_lastname, cols.col_firstname, cols.col_phone1, cols.col_phone2]
     if cols.col_email:
         select_cols.append(cols.col_email)
     cols_sql = ', '.join(f'[{c}]' for c in select_cols)
-    sql = f'SELECT {cols_sql} FROM [{cols.table_name}]'
-    params: list = []
-    if since_code:
-        sql += f' WHERE [{cols.col_code}] > ?'
-        params.append(since_code)
-    sql += f' ORDER BY [{cols.col_code}]'
+    sql = f'SELECT {cols_sql} FROM [{cols.table_name}] ORDER BY [{cols.col_code}]'
     with _connect(mdb_path, password) as conn:
         cur = conn.cursor()
-        cur.execute(sql, params)
+        cur.execute(sql)
         batch: list[PatientRow] = []
         while True:
             rows = cur.fetchmany(batch_size)
