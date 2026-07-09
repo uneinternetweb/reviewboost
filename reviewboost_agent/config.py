@@ -27,6 +27,10 @@ class AgentConfig:
     agent_api_key: str = ''
     last_run_at: Optional[str] = None
     last_seen_manual_trigger: Optional[str] = None
+    last_supabase_ok_at: Optional[str] = None
+    last_sync_ok_at: Optional[str] = None
+    last_error: Optional[str] = None
+    last_error_at: Optional[str] = None
 
     def is_ready(self) -> bool:
         return bool(self.mdb_path and self.agent_api_key)
@@ -49,6 +53,8 @@ def load_config() -> AgentConfig:
     if not p.exists():
         return AgentConfig()
     payload = json.loads(_decrypt(p.read_bytes()).decode('utf-8'))
+    allowed = {f for f in AgentConfig.__dataclass_fields__}
+    payload = {k: v for k, v in payload.items() if k in allowed}
     return AgentConfig(**payload)
 
 def save_config(cfg: AgentConfig) -> None:
