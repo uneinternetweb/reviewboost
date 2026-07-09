@@ -22,7 +22,7 @@ class SyncClient:
     def __init__(self, api_base: str, api_key: str, timeout: float = 20.0) -> None:
         self._api_base = api_base.rstrip('/')
         self._headers = {
-            'Authorization': f'Bearer {api_key}',
+            'X-Agent-Key': api_key,
             'Content-Type': 'application/json',
             'User-Agent': 'ReviewBoostAgent/1.0',
         }
@@ -70,7 +70,17 @@ class SyncClient:
 
     def ingest(self, rows: list[dict], trigger: str) -> dict:
         url = f'{self._api_base}/functions/v1/mdb-sync-ingest'
+        patients = []
+        for row in rows:
+            phone = row.get('phone1') or row.get('phone2') or None
+            patients.append({
+                'patient_id': row.get('patient_id'),
+                'first_name': row.get('first_name'),
+                'last_name': row.get('last_name'),
+                'phone': phone,
+                'email': row.get('email'),
+            })
         with httpx.Client(timeout=self._timeout) as c:
-            r = c.post(url, headers=self._headers, json={'trigger': trigger, 'rows': rows})
+            r = c.post(url, headers=self._headers, json={'trigger': trigger, 'patients': patients})
             r.raise_for_status()
             return r.json()
