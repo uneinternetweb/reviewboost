@@ -71,10 +71,10 @@ def run_once(force: bool = False) -> None:
         col_phone2=remote.col_phone2,
         col_email=remote.col_email,
     )
-    log.info('Sync inicio trigger=%s since=%s', trigger, remote.last_seen_max_code)
+    log.info('Sync inicio trigger=%s modo=full_scan', trigger)
     total = 0
     try:
-        for batch in read_new_patients(cfg.mdb_path, cfg.mdb_password, cols, remote.last_seen_max_code):
+        for batch in read_new_patients(cfg.mdb_path, cfg.mdb_password, cols, None):
             payload = [r.to_payload() for r in batch]
             result = client.ingest(payload, trigger=trigger)
             total += len(payload)
