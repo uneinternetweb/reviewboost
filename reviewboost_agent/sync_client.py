@@ -34,16 +34,36 @@ class SyncClient:
             r = c.get(url, headers=self._headers)
             r.raise_for_status()
             data = r.json()
+
+        table_name = (data.get('table_name') or '').strip()
+        if not table_name:
+            raise RuntimeError('Review Boost no devolvió table_name. Revisa el mapeo MDB en la app.')
+
+        col_code = (data.get('col_code') or '').strip()
+        col_lastname = (data.get('col_lastname') or '').strip()
+        col_firstname = (data.get('col_firstname') or '').strip()
+        col_phone1 = (data.get('col_phone1') or '').strip()
+        col_phone2 = (data.get('col_phone2') or '').strip()
+        missing = [name for name, value in {
+            'col_code': col_code,
+            'col_lastname': col_lastname,
+            'col_firstname': col_firstname,
+            'col_phone1': col_phone1,
+            'col_phone2': col_phone2,
+        }.items() if not value]
+        if missing:
+            raise RuntimeError('Mapeo MDB incompleto en Review Boost: ' + ', '.join(missing))
+
         return SyncConfigResponse(
             enabled=bool(data.get('enabled')),
             interval_minutes=int(data.get('interval_minutes') or 60),
-            table_name=data.get('table_name') or 'Pacientes',
-            col_code=data.get('col_code') or 'ccod',
-            col_lastname=data.get('col_lastname') or 'cnome',
-            col_firstname=data.get('col_firstname') or 'cnome1',
-            col_phone1=data.get('col_phone1') or 'crtel1',
-            col_phone2=data.get('col_phone2') or 'crtel2',
-            col_email=data.get('col_email'),
+            table_name=table_name,
+            col_code=col_code,
+            col_lastname=col_lastname,
+            col_firstname=col_firstname,
+            col_phone1=col_phone1,
+            col_phone2=col_phone2,
+            col_email=(data.get('col_email') or None),
             manual_trigger_requested_at=data.get('manual_trigger_requested_at'),
             last_seen_max_code=data.get('last_seen_max_code'),
         )
