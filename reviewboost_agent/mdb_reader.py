@@ -46,7 +46,9 @@ def _connect(mdb_path: str, password: str):
         conn_str += f'PWD={password};'
     return pyodbc.connect(conn_str, autocommit=True, readonly=True)
 
-def test_connection(mdb_path: str, password: str, table_name: str = 'Pacientes') -> int:
+def test_connection(mdb_path: str, password: str, table_name: str) -> int:
+    if not table_name:
+        raise ValueError('No se ha recibido el nombre de tabla desde Review Boost.')
     with _connect(mdb_path, password) as conn:
         cur = conn.cursor()
         cur.execute(f'SELECT COUNT(*) FROM [{table_name}]')
