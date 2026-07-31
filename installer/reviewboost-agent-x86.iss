@@ -1,6 +1,6 @@
 ; Inno Setup script for Review Boost Windows agent x86
 #define AppName "Review Boost Agent"
-#define AppVersion "1.0.1-x86"
+#define AppVersion "1.0.2-x86"
 #define AppExeName "reviewboost-agent.exe"
 
 [Setup]
@@ -20,22 +20,19 @@ ArchitecturesAllowed=x86 x64
 
 [Files]
 Source: "..\dist\reviewboost-agent.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "nssm\nssm.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Configurar Review Boost Agent"; Filename: "{app}\{#AppExeName}"
 Name: "{group}\Uninstall"; Filename: "{uninstallexe}"
 
 [Run]
-Filename: "{app}\nssm.exe"; Parameters: "install ReviewBoostAgent ""{app}\{#AppExeName}"" --service"; Flags: runhidden
-Filename: "{app}\nssm.exe"; Parameters: "set ReviewBoostAgent Start SERVICE_AUTO_START"; Flags: runhidden
-Filename: "{app}\nssm.exe"; Parameters: "set ReviewBoostAgent Description ""Sincroniza pacientes del MDB de Drtooth con Review Boost"""; Flags: runhidden
-Filename: "{app}\nssm.exe"; Parameters: "start ReviewBoostAgent"; Flags: runhidden
+; El propio agente registra el servicio nativo de Windows mediante pywin32.
+; NSSM no es necesario.
+Filename: "{app}\{#AppExeName}"; Parameters: "--install-service"; Flags: runhidden waituntilterminated
 Filename: "{app}\{#AppExeName}"; Description: "Configurar el agente ahora"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
-Filename: "{app}\nssm.exe"; Parameters: "stop ReviewBoostAgent"; Flags: runhidden
-Filename: "{app}\nssm.exe"; Parameters: "remove ReviewBoostAgent confirm"; Flags: runhidden
+Filename: "{app}\{#AppExeName}"; Parameters: "--uninstall-service"; Flags: runhidden waituntilterminated
 
 [Code]
 function InitializeSetup(): Boolean;
