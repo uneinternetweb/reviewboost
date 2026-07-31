@@ -1,0 +1,59 @@
+name: Build Review Boost Agent x86
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/access-x86-support
+    paths:
+      - 'reviewboost_agent/**'
+      - 'installer/**'
+      - 'requirements.txt'
+      - 'pyinstaller.spec'
+      - '.github/workflows/build-agent-x86.yml'
+
+jobs:
+  build-x86:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11 x86
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          architecture: 'x86'
+
+      - name: Verify Python architecture
+        shell: pwsh
+        run: |
+          $bits = python -c "import struct; print(struct.calcsize('P') * 8)"
+          if ($bits -ne '32') { throw "Expected 32-bit Python, got $bits-bit" }
+
+      - name: Install Python dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Build x86 executable
+        shell: pwsh
+        run: python -m PyInstaller pyinstaller.spec --clean --noconfirm
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Build x86 installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc installer/reviewboost-agent-x86.iss
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: ReviewBoostAgentSetup-x86
+          path: installer/Output/ReviewBoostAgentSetup-x86.exe
+          if-no-files-found: error
