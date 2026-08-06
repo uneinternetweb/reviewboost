@@ -1,17 +1,20 @@
 """Main sync loop."""
 from __future__ import annotations
+
+import os
 import threading
 import time
 from datetime import datetime, timezone
 from typing import Optional
 
 from .config import AgentConfig, load_config, save_config
-from .logger import get_logger
+from .logger import get_logger, log_path
 from .mdb_reader import ColumnMap, read_new_patients
 from .sync_client import SyncClient, SyncConfigResponse
 
 log = get_logger('scheduler')
 POLL_SECONDS = 60
+
 
 def _parse_iso(v: Optional[str]) -> Optional[datetime]:
     if not v:
@@ -20,6 +23,7 @@ def _parse_iso(v: Optional[str]) -> Optional[datetime]:
         return datetime.fromisoformat(v.replace('Z', '+00:00'))
     except ValueError:
         return None
+
 
 def _should_run(cfg: AgentConfig, remote: SyncConfigResponse) -> tuple[bool, str]:
     manual = remote.manual_trigger_requested_at
@@ -33,6 +37,7 @@ def _should_run(cfg: AgentConfig, remote: SyncConfigResponse) -> tuple[bool, str
         return True, 'scheduled'
     return False, ''
 
+
 def _record_error(cfg: AgentConfig, exc: BaseException) -> None:
     cfg.last_error = f'{type(exc).__name__}: {exc}'
     cfg.last_error_at = datetime.now(timezone.utc).isoformat()
@@ -44,24 +49,53 @@ def _record_error(cfg: AgentConfig, exc: BaseException) -> None:
 
 def run_once(force: bool = False) -> None:
     cfg = load_config()
+    log.info(
+        'Inicio de ciclo force=%s config_ready=%s mdb=%s',
+        force,
+        cfg.is_ready(),
+        cfg.mdb_path or '(vacío)',
+    )
     if not cfg.is_ready():
-        log.warning('Config incompleta; abre el asistente.')
-        return
+        exc = RuntimeError('Configuración incompleta: faltan ruta MDB o clave del agente.')
+        _record_error(cfg, exc)
+        raise exc
+
     try:
         client = SyncClient(cfg.api_base, cfg.agent_api_key)
         remote = client.get_config()
         cfg.last_supabase_ok_at = datetime.now(timezone.utc).isoformat()
         save_config(cfg)
+        log.info(
+            'API OK enabled=%s interval=%s table=%s manual=%s',
+            remote.enabled,
+            remote.interval_minutes,
+            remote.table_name,
+            remote.manual_trigger_requested_at,
+        )
     except Exception as exc:
         log.exception('Fallo consultando configuración remota: %s', exc)
         _record_error(cfg, exc)
         raise
+
     if not remote.enabled:
         log.info('Sincronización deshabilitada por el servidor.')
         return
+
     should, trigger = (True, 'manual') if force else _should_run(cfg, remote)
     if not should:
+        log.info('No corresponde sincronizar todavía.')
         return
+
+    # A UNC path can work in the interactive wizard but fail under LocalSystem.
+    if not os.path.isfile(cfg.mdb_path):
+        exc = FileNotFoundError(
+            f'El servicio no puede ver el MDB: {cfg.mdb_path}. '
+            'Si está en red, configura el servicio con un usuario que tenga acceso al recurso compartido.'
+        )
+        log.error('%s', exc)
+        _record_error(cfg, exc)
+        raise exc
+
     cols = ColumnMap(
         table_name=remote.table_name,
         col_code=remote.col_code,
@@ -71,6 +105,7 @@ def run_once(force: bool = False) -> None:
         col_phone2=remote.col_phone2,
         col_email=remote.col_email,
     )
+
     log.info('Sync inicio trigger=%s modo=full_scan', trigger)
     total = 0
     try:
@@ -83,6 +118,7 @@ def run_once(force: bool = False) -> None:
         log.exception('Fallo durante la sincronización: %s', exc)
         _record_error(cfg, exc)
         raise
+
     now = datetime.now(timezone.utc).isoformat()
     cfg.last_run_at = now
     cfg.last_sync_ok_at = now
@@ -94,7 +130,7 @@ def run_once(force: bool = False) -> None:
 
 
 def run_forever(stop_flag: Optional[threading.Event] = None) -> None:
-    log.info('Agente Review Boost iniciado (servicio).')
+    log.info('Agente Review Boost iniciado. Log: %s', log_path())
     while True:
         if stop_flag is not None and stop_flag.is_set():
             log.info('Servicio detenido.')
@@ -102,7 +138,7 @@ def run_forever(stop_flag: Optional[threading.Event] = None) -> None:
         try:
             run_once()
         except Exception as exc:
-            log.exception('Error ciclo: %s', exc)
+            log.exception('Error de ciclo: %s', exc)
         for _ in range(POLL_SECONDS):
             if stop_flag is not None and stop_flag.is_set():
                 log.info('Servicio detenido.')
